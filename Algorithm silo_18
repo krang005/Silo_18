@@ -1,0 +1,369 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SILO | Time Control</title>
+<style>
+:root {
+  --bg: #0b100f;
+  --panel: #131c19;
+  --green: #a2e8bd;
+  --muted: #82978c;
+  --line: #293a32;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: #e1eee6;
+  font-family: "Segoe UI", sans-serif;
+}
+main { max-width: 920px; margin: auto; padding: 28px 18px; }
+header {
+  display: flex; justify-content: space-between;
+  align-items: center; border-bottom: 1px solid var(--line);
+  padding-bottom: 20px; gap: 12px;
+}
+h1 { letter-spacing: 8px; margin: 0; color: var(--green); }
+h2 { font-size: 15px; letter-spacing: 2px; }
+p, label { color: var(--muted); }
+.status { color: var(--green); font-size: 12px; }
+.grid {
+  display: grid; grid-template-columns: repeat(2, 1fr);
+  gap: 14px; margin-top: 18px;
+}
+.panel {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 12px; padding: 20px; min-width: 0;
+}
+.wide { grid-column: 1 / -1; }
+.timer {
+  text-align: center; font-size: clamp(35px, 8vw, 58px);
+  color: var(--green); font-variant-numeric: tabular-nums;
+  margin: 22px 0;
+}
+input, select {
+  width: 100%; background: #0b100f; color: white;
+  padding: 12px; border: 1px solid var(--line);
+  border-radius: 7px; margin: 8px 0 14px;
+}
+button {
+  padding: 11px 15px; border: 1px solid var(--line);
+  border-radius: 7px; background: #22352b;
+  color: var(--green); cursor: pointer; margin: 3px;
+}
+button:hover { background: #30483a; }
+button.primary { background: var(--green); color: #0b100f; }
+button:focus-visible, input:focus-visible {
+  outline: 2px solid var(--green); outline-offset: 2px;
+}
+.actions { display: flex; flex-wrap: wrap; justify-content: center; }
+.big { font-size: 25px; color: var(--green); }
+#message { min-height: 42px; line-height: 1.6; }
+li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+small { color: var(--muted); }
+@media(max-width: 580px) {
+  .grid { grid-template-columns: 1fr; }
+  .wide { grid-column: auto; }
+}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div>
+    <h1>SILO</h1>
+    <p>PERSONAL TIME CONTROL SYSTEM</p>
+  </div>
+  <span class="status">● SYSTEM ONLINE</span>
+</header>
+
+<div class="grid">
+  <section class="panel wide">
+    <small>CURRENT DIRECTIVE</small>
+    <h2 id="greeting">Awaiting instructions.</h2>
+    <p id="message" aria-live="polite">
+      Operator, identify your next objective.
+    </p>
+    <div class="timer" id="timer" role="timer">25:00</div>
+    <div class="actions">
+      <button class="primary" id="start">INITIALIZE</button>
+      <button id="pause">PAUSE</button>
+      <button id="reset">RESET</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>01 / DIRECTIVE</h2>
+    <label for="task">Current task</label>
+    <input id="task" placeholder="e.g. Study accounting">
+    <label for="duration">Session duration</label>
+    <select id="duration">
+      <option value="15">15 minutes</option>
+      <option value="25" selected>25 minutes</option>
+      <option value="45">45 minutes</option>
+      <option value="60">60 minutes</option>
+      <option value="90">90 minutes</option>
+    </select>
+    <label for="goal">Daily focus target (hours)</label>
+    <input id="goal" type="number" min="1" max="16" value="4">
+    <button id="save">SAVE SETTINGS</button>
+  </section>
+
+  <section class="panel">
+    <h2>02 / DAILY REPORT</h2>
+    <p>Focus time</p>
+    <div class="big" id="focus">0 min</div>
+    <p>Sessions completed</p>
+    <div class="big" id="sessions">0</div>
+    <p>Target completion</p>
+    <div class="big" id="progress">0%</div>
+    <div style="height:6px;background:#293a32;border-radius:6px">
+      <div id="bar" style="height:6px;width:0%;background:#a2e8bd;border-radius:6px"></div>
+    </div>
+  </section>
+
+  <section class="panel wide">
+    <h2>03 / BREAK PROTOCOL</h2>
+    <p>Rest is a scheduled function, not a system failure.</p>
+    <div class="actions">
+      <button id="break">START 5-MIN BREAK</button>
+      <button id="voice">TEST SYSTEM VOICE</button>
+      <button id="mute">VOICE: ON</button>
+    </div>
+  </section>
+
+  <section class="panel wide">
+    <h2>04 / ACTIVITY LOG</h2>
+    <ul id="log"><li>System initialized. Awaiting activity.</li></ul>
+    <button id="clear">CLEAR ACTIVITY LOG</button>
+  </section>
+</div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const today = () => new Date().toLocaleDateString("en-CA");
+const storageKey = "silo-time-control-v1";
+
+let data;
+try {
+  data = JSON.parse(localStorage.getItem(storageKey)) || {};
+} catch {
+  data = {};
+}
+if (data.date !== today()) {
+  data = { date: today(), focus: 0, sessions: 0, log: [] };
+}
+data.focus ||= 0;
+data.sessions ||= 0;
+data.log ||= [];
+
+let remaining = Number($("duration").value) * 60;
+let running = false;
+let mode = "focus";
+let muted = false;
+let deadline = 0;
+let ticker = null;
+
+function persist() {
+  localStorage.setItem(storageKey, JSON.stringify(data));
+}
+
+function say(text) {
+  if (muted || !("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 0.88;
+  utterance.pitch = 0.82;
+  utterance.volume = 1;
+  const voices = speechSynthesis.getVoices();
+  const voice = voices.find(v => /en/i.test(v.lang));
+  if (voice) utterance.voice = voice;
+  speechSynthesis.speak(utterance);
+}
+
+function announce(text) {
+  $("message").textContent = text;
+  addLog(text);
+  say(text);
+}
+
+function addLog(text) {
+  data.log.unshift({
+    time: new Date().toLocaleTimeString([], {
+      hour: "2-digit", minute: "2-digit"
+    }),
+    text
+  });
+  data.log = data.log.slice(0, 30);
+  persist();
+  renderLog();
+}
+
+function renderLog() {
+  $("log").replaceChildren();
+  if (!data.log.length) {
+    const li = document.createElement("li");
+    li.textContent = "No activity recorded.";
+    $("log").append(li);
+    return;
+  }
+  data.log.forEach(entry => {
+    const li = document.createElement("li");
+    const time = document.createElement("small");
+    time.textContent = entry.time + " — ";
+    li.append(time, document.createTextNode(entry.text));
+    $("log").append(li);
+  });
+}
+
+function renderStats() {
+  const minutes = Math.floor(data.focus / 60);
+  const goalSeconds = Math.max(1, Number($("goal").value) || 4) * 3600;
+  const percent = Math.min(100, Math.floor(data.focus / goalSeconds * 100));
+  $("focus").textContent = minutes + " min";
+  $("sessions").textContent = data.sessions;
+  $("progress").textContent = percent + "%";
+  $("bar").style.width = percent + "%";
+}
+
+function renderTimer() {
+  const m = Math.floor(remaining / 60);
+  const s = remaining % 60;
+  $("timer").textContent =
+    String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+  $("greeting").textContent = mode === "focus"
+    ? "Focus protocol active."
+    : "Recovery protocol active.";
+  document.title = $("timer").textContent + " | SILO";
+}
+
+function stopTicker() {
+  running = false;
+  clearInterval(ticker);
+  ticker = null;
+}
+
+function start() {
+  if (running) return;
+  if (remaining <= 0) remaining = Number($("duration").value) * 60;
+  running = true;
+  deadline = Date.now() + remaining * 1000;
+  $("message").textContent = mode === "focus"
+    ? "Directive accepted. Focus on the task."
+    : "Break initiated. Return when the interval ends.";
+  ticker = setInterval(tick, 250);
+  tick();
+}
+
+function tick() {
+  if (!running) return;
+  const next = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+  if (mode === "focus") {
+    data.focus += Math.max(0, remaining - next);
+  }
+  remaining = next;
+  // Keep elapsed focus accounting accurate across pauses and reloads
+  // during a session by using the delta since the last tick.
+  persist();
+  renderTimer();
+  renderStats();
+
+  if (remaining <= 0) finish();
+}
+
+function finish() {
+  stopTicker();
+  if (mode === "focus") {
+    data.sessions++;
+    persist();
+    renderStats();
+    announce("Focus interval complete. You may take a five-minute break.");
+  } else {
+    announce("Break complete. Return to your directive.");
+  }
+}
+
+$("start").onclick = () => {
+  if (mode === "focus" && !$("task").value.trim()) {
+    announce("No directive specified. Enter a task before proceeding.");
+    $("task").focus();
+    return;
+  }
+  start();
+};
+
+$("pause").onclick = () => {
+  if (running) {
+    remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    stopTicker();
+    announce("Session paused. Awaiting further instructions.");
+    renderTimer();
+  } else {
+    start();
+  }
+};
+
+$("reset").onclick = () => {
+  stopTicker();
+  remaining = Number($("duration").value) * 60;
+  mode = "focus";
+  renderTimer();
+  announce("Timer reset. Awaiting your next directive.");
+};
+
+$("duration").onchange = () => {
+  if (running) return;
+  mode = "focus";
+  remaining = Number($("duration").value) * 60;
+  renderTimer();
+};
+
+$("save").onclick = () => {
+  const goal = Number($("goal").value);
+  if (!Number.isFinite(goal) || goal < 1 || goal > 16) {
+    announce("Daily target must be between one and sixteen hours.");
+    return;
+  }
+  persist();
+  renderStats();
+  announce("Settings saved.");
+};
+
+$("break").onclick = () => {
+  stopTicker();
+  mode = "break";
+  remaining = 5 * 60;
+  renderTimer();
+  announce("Five-minute recovery interval authorized.");
+  start();
+};
+
+$("voice").onclick = () => say(
+  "System online. Operator, your time is limited. Proceed with your directive."
+);
+
+$("mute").onclick = () => {
+  muted = !muted;
+  $("mute").textContent = "VOICE: " + (muted ? "OFF" : "ON");
+  if (muted && "speechSynthesis" in window) speechSynthesis.cancel();
+};
+
+$("clear").onclick = () => {
+  if (!confirm("Clear the activity log?")) return;
+  data.log = [];
+  persist();
+  renderLog();
+};
+
+$("goal").onchange = renderStats;
+
+renderStats();
+renderLog();
+renderTimer();
+</script>
+</body>
+</html>
